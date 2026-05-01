@@ -1,9 +1,14 @@
 const ifct = require('ifct2017');
+const FuzzyMatcher = require('./utils/fuzzy-matcher');
+const IngredientBreakdown = require('./utils/ingredient-breakdown');
+const NIMBridge = require('./utils/nim-bridge');
 
 class NutritionLookup {
   constructor() {
     this.foodDatabase = null;
     this.commonIndianFoods = {};
+    this.fuzzyMatcher = new FuzzyMatcher();
+    this.nimBridge = new NIMBridge();
     this.initialize();
   }
 
@@ -12,6 +17,7 @@ class NutritionLookup {
       // Load the IFCT data
       this.foodDatabase = await ifct.compositions.load();
       this.commonIndianFoods = this.buildFoodIndex();
+      this.fuzzyMatcher.initialize(this.foodDatabase);
       console.log(`Loaded ${this.foodDatabase.size} foods from IFCT database`);
     } catch (error) {
       console.error('Error loading IFCT data:', error);
@@ -107,27 +113,32 @@ class NutritionLookup {
         continue;
       }
 
-      // Single word match
-      if (this.commonIndianFoods[word] && !usedFoods.has(this.commonIndianFoods[word].code)) {
+      // Single word match using fuzzy matcher
+      const fuzzyMatch = this.fuzzyMatcher.findBestMatch(word, 0.7);
+      if (fuzzyMatch && !usedFoods.has(fuzzyMatch.food.code)) {
         identifiedFoods.push({
-          food: this.commonIndianFoods[word],
+          food: fuzzyMatch.food,
           matchedText: word,
-          confidence: 'high'
+          confidence: fuzzyMatch.matchType === 'very_high' || fuzzyMatch.matchType === 'high' ? 'high' : 'medium',
+          estimatedWeight: IngredientBreakdown.estimatePortionSize(word)
         });
-        usedFoods.add(this.commonIndianFoods[word].code);
+        usedFoods.add(fuzzyMatch.food.code);
         continue;
       }
 
       // Two word combination
       if (i < words.length - 1) {
         const twoWords = `${words[i]} ${words[i + 1]}`;
-        if (this.commonIndianFoods[twoWords] && !usedFoods.has(this.commonIndianFoods[twoWords].code)) {
+        const twoWordMatch = this.fuzzyMatcher.findBestMatch(twoWords, 0.7);
+
+        if (twoWordMatch && !usedFoods.has(twoWordMatch.food.code)) {
           identifiedFoods.push({
-            food: this.commonIndianFoods[twoWords],
+            food: twoWordMatch.food,
             matchedText: twoWords,
-            confidence: 'high'
+            confidence: twoWordMatch.matchType === 'very_high' || twoWordMatch.matchType === 'high' ? 'high' : 'medium',
+            estimatedWeight: IngredientBreakdown.estimatePortionSize(twoWords)
           });
-          usedFoods.add(this.commonIndianFoods[twoWords].code);
+          usedFoods.add(twoWordMatch.food.code);
           i++; // Skip next word since we used it
           continue;
         }
@@ -139,7 +150,8 @@ class NutritionLookup {
         identifiedFoods.push({
           food: match.food,
           matchedText: word,
-          confidence: match.confidence
+          confidence: match.confidence,
+          estimatedWeight: IngredientBreakdown.estimatePortionSize(word)
         });
         usedFoods.add(match.food.code);
       });
@@ -225,40 +237,18 @@ class NutritionLookup {
   }
 
   calculateNutrition(identifiedFoods) {
-    let totalCalories = 0;
-    let totalProtein = 0;
-    let totalCarbs = 0;
-    let totalFat = 0;
-    let totalFiber = 0;
-
-    identifiedFoods.forEach(({ food, confidence }) => {
-      const weight = confidence === 'high' ? 1.0 : 0.7; // Reduce weight for medium confidence matches
-
-      // Get nutrition values (per 100g)
-      // Energy is in kJ, convert to kcal (1 kJ = 0.239 kcal)
-      const energyKJ = food.enerc || 0;
-      const energyKcal = energyKJ * 0.239;
-
-      const protein = food.protcnt || 0;
-      const carbs = food.cho || 0;
-      const fat = food.fatce || 0;
-      const fiber = food.fibtg || 0;
-
-      totalCalories += energyKcal * weight;
-      totalProtein += protein * weight;
-      totalCarbs += carbs * weight;
-      totalFat += fat * weight;
-      totalFiber += fiber * weight;
-    });
+    // Use IngredientBreakdown for detailed calculation
+    const breakdown = IngredientBreakdown.calculateBreakdown(identifiedFoods);
 
     return {
-      calories: Math.round(totalCalories),
-      protein: Math.round(totalProtein),
-      carbs: Math.round(totalCarbs),
-      fat: Math.round(totalFat),
-      fiber: Math.round(totalFiber),
+      calories: breakdown.totalCalories,
+      protein: breakdown.totalProtein,
+      carbs: breakdown.totalCarbs,
+      fat: breakdown.totalFat,
+      fiber: breakdown.totalFiber,
       foodsIdentified: identifiedFoods.length,
-      confidence: this.calculateOverallConfidence(identifiedFoods)
+      confidence: this.calculateOverallConfidence(identifiedFoods),
+      breakdown: breakdown // Include detailed breakdown
     };
   }
 
@@ -282,6 +272,28 @@ class NutritionLookup {
     const identifiedFoods = this.identifyFoods(text);
 
     if (identifiedFoods.length === 0) {
+      // Try to find dish using NIM Bridge
+      const dishNutrition = await this.nimBridge.searchDish(text);
+
+      if (dishNutrition) {
+        return {
+          success: true,
+          identifiedFoods: [{
+            name: text,
+            matchedText: text,
+            confidence: dishNutrition.confidence || 'low',
+            source: dishNutrition.source || 'nim_bridge'
+          }],
+          nutrition: {
+            ...dishNutrition,
+            foodsIdentified: 1,
+            confidence: dishNutrition.confidence || 'low'
+          },
+          message: `Dish found using NIM Bridge with ${dishNutrition.confidence || 'low'} confidence.`,
+          dataSource: 'NIM Bridge (Fallback Database)'
+        };
+      }
+
       return {
         success: false,
         message: 'Could not identify any foods. Please try more specific food names.',
@@ -296,7 +308,8 @@ class NutritionLookup {
       identifiedFoods: identifiedFoods.map(f => ({
         name: f.food.name,
         matchedText: f.matchedText,
-        confidence: f.confidence
+        confidence: f.confidence,
+        estimatedWeight: f.estimatedWeight
       })),
       nutrition,
       message: `Identified ${identifiedFoods.length} food(s) with ${nutrition.confidence} confidence.`

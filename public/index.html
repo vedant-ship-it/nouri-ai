@@ -250,6 +250,56 @@
       color: #e2e8f0;
     }
 
+    .ingredient-breakdown {
+      margin-top: 1rem;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .ingredient-breakdown-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ffd200;
+      margin-bottom: 0.8rem;
+    }
+
+    .ingredient-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .ingredient-table th {
+      text-align: left;
+      padding: 0.5rem;
+      color: #a0aec0;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .ingredient-table td {
+      padding: 0.5rem;
+      color: #e2e8f0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .ingredient-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .ingredient-table .total-row {
+      font-weight: 700;
+      background: rgba(247, 151, 30, 0.1);
+    }
+
+    .ingredient-table .total-row td {
+      color: #ffd200;
+    }
+
     .share-btn {
       width: 100%;
       margin-top: 1rem;
@@ -464,6 +514,21 @@
       <div class="data-source" id="data-source"></div>
     </div>
 
+    <div class="ingredient-breakdown" id="ingredient-breakdown" style="display: none;">
+      <div class="ingredient-breakdown-title">🥗 Ingredient Breakdown</div>
+      <table class="ingredient-table" id="ingredient-table">
+        <thead>
+          <tr>
+            <th>Ingredient</th>
+            <th>Grams</th>
+            <th>Protein (g)</th>
+            <th>Calories (kcal)</th>
+          </tr>
+        </thead>
+        <tbody id="ingredient-table-body"></tbody>
+      </table>
+    </div>
+
     <div class="result-text" id="result-text"></div>
 
     <div class="dos-donts-section" id="dos-donts-section">
@@ -523,6 +588,21 @@
         if (dataSource) {
           shareText += dataSource.innerText + "\n";
         }
+
+        // Add ingredient breakdown if available
+        if (ingredientBreakdown.style.display !== "none") {
+          shareText += "\n🥗 INGREDIENT BREAKDOWN:\n";
+          const table = document.getElementById("ingredient-table");
+          const rows = table.querySelectorAll("tr");
+          rows.forEach((row, index) => {
+            if (index === 0) return; // Skip header
+            const cells = row.querySelectorAll("td");
+            if (cells.length >= 4) {
+              shareText += `${cells[0].innerText} | ${cells[1].innerText} | ${cells[2].innerText} | ${cells[3].innerText}\n`;
+            }
+          });
+        }
+
         shareText += "\n";
       }
 
@@ -575,6 +655,8 @@
       const nutritionBadges = document.getElementById("nutrition-badges");
       const identifiedFoodsDiv = document.getElementById("identified-foods");
       const dataSourceDiv = document.getElementById("data-source");
+      const ingredientBreakdown = document.getElementById("ingredient-breakdown");
+      const ingredientTableBody = document.getElementById("ingredient-table-body");
       const dosDontsSection = document.getElementById("dos-donts-section");
       const dosList = document.getElementById("dos-list");
       const dontsList = document.getElementById("donts-list");
@@ -600,6 +682,7 @@
       resultCard.classList.remove("visible");
       dosDontsSection.classList.remove("visible");
       nutritionSummary.style.display = "none";
+      ingredientBreakdown.style.display = "none";
 
       try {
         const res = await fetch("/analyze", {
@@ -633,6 +716,34 @@
 
           if (data.dataSource) {
             dataSourceDiv.textContent = `📚 Source: ${data.dataSource}`;
+          }
+
+          // Display ingredient breakdown if available
+          if (data.nutrition.breakdown && data.nutrition.breakdown.ingredients) {
+            ingredientBreakdown.style.display = "block";
+            ingredientTableBody.innerHTML = "";
+
+            data.nutrition.breakdown.ingredients.forEach(ing => {
+              const row = document.createElement("tr");
+              row.innerHTML = `
+                <td>${ing.name}</td>
+                <td>${ing.weight}g</td>
+                <td>${ing.nutrition.protein}g</td>
+                <td>${ing.nutrition.calories}kcal</td>
+              `;
+              ingredientTableBody.appendChild(row);
+            });
+
+            // Add total row
+            const totalRow = document.createElement("tr");
+            totalRow.className = "total-row";
+            totalRow.innerHTML = `
+              <td><strong>TOTAL</strong></td>
+              <td><strong>${data.nutrition.breakdown.totalWeight}g</strong></td>
+              <td><strong>${data.nutrition.breakdown.totalProtein}g</strong></td>
+              <td><strong>${data.nutrition.breakdown.totalCalories}kcal</strong></td>
+            `;
+            ingredientTableBody.appendChild(totalRow);
           }
         }
 

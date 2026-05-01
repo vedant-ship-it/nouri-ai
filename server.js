@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 const NutritionLookup = require("./nutrition-lookup");
+const LLMOutputCleaner = require("./utils/llm-output-cleaner");
 
 // Polyfill Web APIs for Node < 18
 if (!globalThis.fetch) {
@@ -141,17 +142,26 @@ Return ONLY valid JSON, no other text.`,
 
     let responseText = message.content[0].text;
 
-    // Remove markdown code blocks if present
-    responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    // Use LLM output cleaner to parse JSON
+    const jsonResponse = LLMOutputCleaner.parseJSON(responseText);
 
-    const jsonResponse = JSON.parse(responseText);
+    if (!jsonResponse) {
+      throw new Error('Failed to parse AI response as JSON');
+    }
+
+    // Validate response structure
+    const validation = LLMOutputCleaner.validateSchema(jsonResponse, ['analysis', 'dos', 'donts']);
+    if (!validation.isValid) {
+      console.error('Invalid response structure:', validation.error);
+      throw new Error('Invalid response structure from AI');
+    }
 
     // Add the real nutrition data to the response
     res.json({
       ...jsonResponse,
       nutrition: nutritionAnalysis.nutrition,
       identifiedFoods: nutritionAnalysis.identifiedFoods,
-      dataSource: "IFCT (Indian Food Composition Tables)"
+      dataSource: nutritionAnalysis.dataSource || "IFCT (Indian Food Composition Tables)"
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
