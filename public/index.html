@@ -200,6 +200,56 @@
       margin: 0.4rem 0;
     }
 
+    .nutrition-badge {
+      display: inline-block;
+      background: rgba(247, 151, 30, 0.15);
+      border: 1px solid rgba(247, 151, 30, 0.3);
+      border-radius: 8px;
+      padding: 0.5rem 0.8rem;
+      margin: 0.3rem 0.3rem 0.3rem 0;
+      font-size: 0.85rem;
+      color: #ffd200;
+    }
+
+    .nutrition-badge strong {
+      color: #ffffff;
+      font-size: 1rem;
+    }
+
+    .nutrition-summary {
+      background: rgba(72, 187, 120, 0.1);
+      border: 1px solid rgba(72, 187, 120, 0.3);
+      border-radius: 12px;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+
+    .nutrition-summary-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #48bb78;
+      margin-bottom: 0.5rem;
+    }
+
+    .data-source {
+      font-size: 0.75rem;
+      color: #718096;
+      margin-top: 0.5rem;
+      font-style: italic;
+    }
+
+    .identified-foods {
+      margin-top: 0.8rem;
+      font-size: 0.85rem;
+      color: #a0aec0;
+    }
+
+    .identified-foods strong {
+      color: #e2e8f0;
+    }
+
     .share-btn {
       width: 100%;
       margin-top: 1rem;
@@ -406,6 +456,14 @@
 
   <div class="result-card" id="result-card">
     <div class="result-label">Nouri's Analysis</div>
+
+    <div class="nutrition-summary" id="nutrition-summary" style="display: none;">
+      <div class="nutrition-summary-title">📊 Real Nutrition Data</div>
+      <div id="nutrition-badges"></div>
+      <div class="identified-foods" id="identified-foods"></div>
+      <div class="data-source" id="data-source"></div>
+    </div>
+
     <div class="result-text" id="result-text"></div>
 
     <div class="dos-donts-section" id="dos-donts-section">
@@ -447,8 +505,28 @@
       const resultText = document.getElementById("result-text").innerText;
       const dosList = document.getElementById("dos-list");
       const dontsList = document.getElementById("donts-list");
+      const nutritionSummary = document.getElementById("nutrition-summary");
 
-      let shareText = resultText + "\n\n✅ DO:\n";
+      let shareText = resultText + "\n\n";
+
+      // Add nutrition data if available
+      if (nutritionSummary.style.display !== "none") {
+        const badges = document.getElementById("nutrition-badges");
+        const identifiedFoods = document.getElementById("identified-foods");
+        const dataSource = document.getElementById("data-source");
+
+        shareText += "📊 REAL NUTRITION DATA:\n";
+        shareText += badges.innerText + "\n";
+        if (identifiedFoods) {
+          shareText += identifiedFoods.innerText + "\n";
+        }
+        if (dataSource) {
+          shareText += dataSource.innerText + "\n";
+        }
+        shareText += "\n";
+      }
+
+      shareText += "✅ DO:\n";
       Array.from(dosList.children).forEach(li => {
         shareText += "• " + li.innerText + "\n";
       });
@@ -458,7 +536,7 @@
         shareText += "• " + li.innerText + "\n";
       });
 
-      shareText += "\n⚠️ Values are estimates. For medical decisions consult a doctor.";
+      shareText += "\n⚠️ For medical decisions consult a doctor.";
 
       navigator.clipboard.writeText(shareText).then(() => {
         btn.textContent = "Copied! Paste it on WhatsApp";
@@ -493,6 +571,10 @@
       const errorMsg = document.getElementById("error-msg");
       const resultCard = document.getElementById("result-card");
       const resultText = document.getElementById("result-text");
+      const nutritionSummary = document.getElementById("nutrition-summary");
+      const nutritionBadges = document.getElementById("nutrition-badges");
+      const identifiedFoodsDiv = document.getElementById("identified-foods");
+      const dataSourceDiv = document.getElementById("data-source");
       const dosDontsSection = document.getElementById("dos-donts-section");
       const dosList = document.getElementById("dos-list");
       const dontsList = document.getElementById("donts-list");
@@ -517,6 +599,7 @@
       spinner.classList.add("visible");
       resultCard.classList.remove("visible");
       dosDontsSection.classList.remove("visible");
+      nutritionSummary.style.display = "none";
 
       try {
         const res = await fetch("/analyze", {
@@ -531,6 +614,27 @@
 
         rawResult = data.analysis;
         resultText.innerHTML = renderMarkdown(data.analysis);
+
+        // Display nutrition data if available
+        if (data.nutrition) {
+          nutritionSummary.style.display = "block";
+          nutritionBadges.innerHTML = `
+            <div class="nutrition-badge"><strong>${data.nutrition.calories}</strong> kcal</div>
+            <div class="nutrition-badge"><strong>${data.nutrition.protein}g</strong> Protein</div>
+            <div class="nutrition-badge"><strong>${data.nutrition.carbs}g</strong> Carbs</div>
+            <div class="nutrition-badge"><strong>${data.nutrition.fat}g</strong> Fat</div>
+            <div class="nutrition-badge"><strong>${data.nutrition.fiber}g</strong> Fiber</div>
+          `;
+
+          if (data.identifiedFoods && data.identifiedFoods.length > 0) {
+            const foodNames = data.identifiedFoods.map(f => f.name).join(", ");
+            identifiedFoodsDiv.innerHTML = `<strong>Foods identified:</strong> ${foodNames}`;
+          }
+
+          if (data.dataSource) {
+            dataSourceDiv.textContent = `📚 Source: ${data.dataSource}`;
+          }
+        }
 
         // Populate Do's list
         dosList.innerHTML = "";

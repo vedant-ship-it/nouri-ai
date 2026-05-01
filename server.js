@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
+const NutritionLookup = require("./nutrition-lookup");
 
 // Polyfill Web APIs for Node < 18
 if (!globalThis.fetch) {
@@ -15,6 +16,12 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const nutritionLookup = new NutritionLookup();
+
+// Initialize nutrition lookup (async but we'll let it load in background)
+nutritionLookup.initialize().catch(err => {
+  console.error('Failed to initialize nutrition lookup:', err);
+});
 
 const GOAL_GUIDANCE = {
   "weight loss": `
@@ -63,6 +70,29 @@ app.post("/analyze", async (req, res) => {
   const guidance = GOAL_GUIDANCE[goalKey] || "";
 
   try {
+    // First, get actual nutrition data from IFCT
+    const nutritionAnalysis = await nutritionLookup.analyzeMeal(food);
+
+    if (!nutritionAnalysis.success) {
+      return res.status(400).json({
+        error: nutritionAnalysis.message,
+        suggestion: "Try using more specific Indian food names like 'dal chawal', 'paneer tikka', 'roti', etc."
+      });
+    }
+
+    // Prepare nutrition data for AI
+    const nutritionContext = `
+Actual Nutrition Data (from IFCT database):
+- Total Calories: ${nutritionAnalysis.nutrition.calories} kcal
+- Protein: ${nutritionAnalysis.nutrition.protein}g
+- Carbohydrates: ${nutritionAnalysis.nutrition.carbs}g
+- Fat: ${nutritionAnalysis.nutrition.fat}g
+- Fiber: ${nutritionAnalysis.nutrition.fiber}g
+- Foods Identified: ${nutritionAnalysis.identifiedFoods.map(f => f.name).join(", ")}
+- Data Confidence: ${nutritionAnalysis.nutrition.confidence}
+
+Note: These are real nutritional values from the Indian Food Composition Tables database, not estimates.`;
+
     const message = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 600,
@@ -74,12 +104,14 @@ app.post("/analyze", async (req, res) => {
 User ate today: ${food}
 User goal: ${goal}
 
+${nutritionContext}
+
 Goal-specific guidance (use this to shape your response):
 ${guidance}
 
 Provide a JSON response with this exact structure:
 {
-  "analysis": "Brief analysis in under 80 words with approximate total calories, approximate protein in grams, and one specific actionable tip for tomorrow that fits their goal. Be warm, encouraging, and conversational. No guilt-tripping.",
+  "analysis": "Brief analysis in under 80 words. Use the ACTUAL nutrition data provided above. Mention the real calories and protein values. Be warm, encouraging, and conversational. No guilt-tripping.",
   "dos": [
     "First specific actionable thing to do tomorrow based on their goal and what they ate today. Practical Indian lifestyle advice.",
     "Second specific actionable thing to do tomorrow based on their goal and what they ate today. Practical Indian lifestyle advice.",
@@ -100,6 +132,8 @@ Make the dos and donts goal-specific:
 - Fat loss aggressive: Focus on strict calorie deficit, high satiety foods
 - Weight gain: Focus on calorie-dense foods, frequent meals
 
+IMPORTANT: Use the ACTUAL nutrition values provided in the nutrition context, do not make up your own numbers.
+
 Return ONLY valid JSON, no other text.`,
         },
       ],
@@ -111,7 +145,14 @@ Return ONLY valid JSON, no other text.`,
     responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     const jsonResponse = JSON.parse(responseText);
-    res.json(jsonResponse);
+
+    // Add the real nutrition data to the response
+    res.json({
+      ...jsonResponse,
+      nutrition: nutritionAnalysis.nutrition,
+      identifiedFoods: nutritionAnalysis.identifiedFoods,
+      dataSource: "IFCT (Indian Food Composition Tables)"
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
