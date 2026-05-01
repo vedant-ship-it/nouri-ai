@@ -105,7 +105,11 @@ Return ONLY valid JSON, no other text.`,
       ],
     });
 
-    const responseText = message.content[0].text;
+    let responseText = message.content[0].text;
+
+    // Remove markdown code blocks if present
+    responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+
     const jsonResponse = JSON.parse(responseText);
     res.json(jsonResponse);
   } catch (err) {
