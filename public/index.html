@@ -233,6 +233,99 @@
       padding-top: 0.8rem;
     }
 
+    .dos-donts-section {
+      margin-top: 1.5rem;
+      display: none;
+    }
+
+    .dos-donts-section.visible {
+      display: block;
+    }
+
+    .dos-donts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 0.8rem;
+    }
+
+    .dos-donts-column {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      padding: 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dos-donts-column.dos {
+      border-color: rgba(72, 187, 120, 0.3);
+    }
+
+    .dos-donts-column.donts {
+      border-color: rgba(245, 101, 101, 0.3);
+    }
+
+    .dos-donts-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .dos-donts-title.dos {
+      color: #48bb78;
+    }
+
+    .dos-donts-title.donts {
+      color: #f56565;
+    }
+
+    .dos-donts-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .dos-donts-list li {
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #e2e8f0;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .dos-donts-list li:last-child {
+      border-bottom: none;
+    }
+
+    .dos-donts-list li::before {
+      flex-shrink: 0;
+      font-size: 0.85rem;
+      margin-top: 0.1rem;
+    }
+
+    .dos-donts-list.dos li::before {
+      content: "✅";
+    }
+
+    .dos-donts-list.donts li::before {
+      content: "❌";
+    }
+
+    @media (max-width: 480px) {
+      .dos-donts-grid {
+        grid-template-columns: 1fr;
+      }
+      .logo { font-size: 2.2rem; }
+      .card { padding: 1.5rem; }
+    }
+
     .spinner {
       display: none;
       width: 22px;
@@ -266,11 +359,6 @@
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
-    }
-
-    @media (max-width: 480px) {
-      .logo { font-size: 2.2rem; }
-      .card { padding: 1.5rem; }
     }
   </style>
 </head>
@@ -319,6 +407,20 @@
   <div class="result-card" id="result-card">
     <div class="result-label">Nouri's Analysis</div>
     <div class="result-text" id="result-text"></div>
+
+    <div class="dos-donts-section" id="dos-donts-section">
+      <div class="dos-donts-grid">
+        <div class="dos-donts-column dos">
+          <div class="dos-donts-title dos">✅ DO</div>
+          <ul class="dos-donts-list dos" id="dos-list"></ul>
+        </div>
+        <div class="dos-donts-column donts">
+          <div class="dos-donts-title donts">❌ DON'T</div>
+          <ul class="dos-donts-list donts" id="donts-list"></ul>
+        </div>
+      </div>
+    </div>
+
     <button class="share-btn" id="share-btn" onclick="shareAnalysis()">Share on WhatsApp</button>
     <p class="disclaimer">⚠️ Values are estimates. Actual nutrition varies based on portion size, ingredients and cooking method. For medical decisions consult a doctor.</p>
   </div>
@@ -342,7 +444,23 @@
 
     function shareAnalysis() {
       const btn = document.getElementById("share-btn");
-      navigator.clipboard.writeText(rawResult).then(() => {
+      const resultText = document.getElementById("result-text").innerText;
+      const dosList = document.getElementById("dos-list");
+      const dontsList = document.getElementById("donts-list");
+
+      let shareText = resultText + "\n\n✅ DO:\n";
+      Array.from(dosList.children).forEach(li => {
+        shareText += "• " + li.innerText + "\n";
+      });
+
+      shareText += "\n❌ DON'T:\n";
+      Array.from(dontsList.children).forEach(li => {
+        shareText += "• " + li.innerText + "\n";
+      });
+
+      shareText += "\n⚠️ Values are estimates. For medical decisions consult a doctor.";
+
+      navigator.clipboard.writeText(shareText).then(() => {
         btn.textContent = "Copied! Paste it on WhatsApp";
         btn.classList.add("copied");
         setTimeout(() => {
@@ -375,6 +493,9 @@
       const errorMsg = document.getElementById("error-msg");
       const resultCard = document.getElementById("result-card");
       const resultText = document.getElementById("result-text");
+      const dosDontsSection = document.getElementById("dos-donts-section");
+      const dosList = document.getElementById("dos-list");
+      const dontsList = document.getElementById("donts-list");
       const btn = document.getElementById("submit-btn");
       const btnLabel = document.getElementById("btn-label");
       const spinner = document.getElementById("spinner");
@@ -395,6 +516,7 @@
       btnLabel.style.display = "none";
       spinner.classList.add("visible");
       resultCard.classList.remove("visible");
+      dosDontsSection.classList.remove("visible");
 
       try {
         const res = await fetch("/analyze", {
@@ -407,9 +529,32 @@
 
         if (!res.ok) throw new Error(data.error || "Something went wrong.");
 
-        rawResult = data.result;
-        resultText.innerHTML = renderMarkdown(data.result);
+        rawResult = data.analysis;
+        resultText.innerHTML = renderMarkdown(data.analysis);
+
+        // Populate Do's list
+        dosList.innerHTML = "";
+        if (data.dos && Array.isArray(data.dos)) {
+          data.dos.forEach(item => {
+            const li = document.createElement("li");
+            li.textContent = item;
+            dosList.appendChild(li);
+          });
+        }
+
+        // Populate Don'ts list
+        dontsList.innerHTML = "";
+        if (data.donts && Array.isArray(data.donts)) {
+          data.donts.forEach(item => {
+            const li = document.createElement("li");
+            li.textContent = item;
+            dontsList.appendChild(li);
+          });
+        }
+
         resultCard.classList.add("visible");
+        dosDontsSection.classList.add("visible");
+
         const shareBtn = document.getElementById("share-btn");
         shareBtn.textContent = "Share on WhatsApp";
         shareBtn.classList.remove("copied");

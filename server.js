@@ -65,7 +65,7 @@ app.post("/analyze", async (req, res) => {
   try {
     const message = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
+      max_tokens: 600,
       messages: [
         {
           role: "user",
@@ -77,17 +77,37 @@ User goal: ${goal}
 Goal-specific guidance (use this to shape your response):
 ${guidance}
 
-Respond in under 100 words with:
-- Approximate total calories
-- Approximate protein in grams
-- One specific, actionable tip for tomorrow that fits their goal
+Provide a JSON response with this exact structure:
+{
+  "analysis": "Brief analysis in under 80 words with approximate total calories, approximate protein in grams, and one specific actionable tip for tomorrow that fits their goal. Be warm, encouraging, and conversational. No guilt-tripping.",
+  "dos": [
+    "First specific actionable thing to do tomorrow based on their goal and what they ate today. Practical Indian lifestyle advice.",
+    "Second specific actionable thing to do tomorrow based on their goal and what they ate today. Practical Indian lifestyle advice.",
+    "Third specific actionable thing to do tomorrow based on their goal and what they ate today. Practical Indian lifestyle advice."
+  ],
+  "donts": [
+    "First specific thing to avoid tomorrow based on their goal and today's food. Real Indian food habits to watch out for.",
+    "Second specific thing to avoid tomorrow based on their goal and today's food. Real Indian food habits to watch out for.",
+    "Third specific thing to avoid tomorrow based on their goal and today's food. Real Indian food habits to watch out for."
+  ]
+}
 
-Be warm, encouraging, and conversational. No guilt-tripping.`,
+Make the dos and donts goal-specific:
+- Weight loss: Focus on calorie reduction, fiber increase, portion control
+- Muscle gain: Focus on protein intake, meal timing, calorie surplus
+- Diabetes management: Focus on blood sugar control, low GI foods, portion management
+- Maintenance: Focus on balanced nutrition, moderation
+- Fat loss aggressive: Focus on strict calorie deficit, high satiety foods
+- Weight gain: Focus on calorie-dense foods, frequent meals
+
+Return ONLY valid JSON, no other text.`,
         },
       ],
     });
 
-    res.json({ result: message.content[0].text });
+    const responseText = message.content[0].text;
+    const jsonResponse = JSON.parse(responseText);
+    res.json(jsonResponse);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
